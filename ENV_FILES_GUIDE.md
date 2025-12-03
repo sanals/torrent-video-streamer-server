@@ -1,32 +1,14 @@
-# Environment Files Guide
+# Environment Files Guide - Backend Server
 
 ## 📁 File Structure
 
-### Frontend (Root Directory)
-- **`.env.local`** ⭐ **USE THIS** - Local overrides (highest priority, git-ignored)
-- **`.env`** - Default values (if needed, but `.env.local` overrides it)
+### Backend (Root Directory)
+- **`.env`** ⭐ **USE THIS** - Backend configuration (git-ignored)
 - **`.env.example`** - Template file (committed to git, shows required variables)
-
-### Backend (server/ Directory)
-- **`server/.env`** ⭐ **USE THIS** - Backend configuration (git-ignored)
-- **`server/.env.example`** - Template file (committed to git, shows required variables)
 
 ## 🔑 Standard Variables
 
-### Frontend Variables (`.env.local`)
-```env
-# API Configuration
-VITE_API_URL=http://YOUR_TAILSCALE_IP:4000/api
-VITE_WS_URL=ws://YOUR_TAILSCALE_IP:4000
-```
-
-**For local development:**
-```env
-VITE_API_URL=http://localhost:4000/api
-VITE_WS_URL=ws://localhost:4000
-```
-
-### Backend Variables (`server/.env`)
+### Backend Variables (`.env`)
 ```env
 # Server Configuration
 PORT=4000
@@ -46,36 +28,45 @@ TORRENT_PAUSE_ON_VIDEO_PAUSE=true
 
 ## 📝 Priority Order
 
-### Frontend (Vite)
-1. `.env.local` (highest priority, git-ignored)
-2. `.env` (default, git-ignored)
-3. `.env.example` (template only, not loaded)
-
 ### Backend (Node.js dotenv)
-1. `server/.env` (loaded by dotenv.config)
-2. `server/.env.example` (template only, not loaded)
+1. `.env` (loaded by dotenv.config)
+2. `.env.example` (template only, not loaded)
 
 ## ⚠️ Common Mistakes
 
-1. **Don't put backend variables in frontend `.env` files**
-   - ❌ Wrong: `CORS_ORIGIN` in root `.env`
-   - ✅ Correct: `CORS_ORIGIN` in `server/.env`
+1. **Don't put frontend variables in backend `.env` files**
+   - ❌ Wrong: `VITE_API_URL` in `.env`
+   - ✅ Correct: `VITE_API_URL` in frontend `.env.local`
 
-2. **Use `.env.local` for frontend local overrides**
-   - `.env.local` takes priority over `.env`
-   - `.env.local` is git-ignored (safe for personal configs)
+2. **Backend variables must be in `.env`**
+   - The backend loads from `.env` (in the server root directory)
 
-3. **Backend variables must be in `server/.env`**
-   - The backend loads from `server/.env` (not root `.env`)
+3. **CORS_ORIGIN for Tailscale**
+   - Use `CORS_ORIGIN=*` for Tailscale networks
+   - Use specific origin for production (e.g., `CORS_ORIGIN=https://yourdomain.com`)
 
 ## 🚀 Quick Setup
 
 ### First Time Setup:
-1. Copy `.env.example` to `.env.local` (frontend)
-2. Copy `server/.env.example` to `server/.env` (backend)
-3. Update with your Tailscale IP or localhost
+1. Copy `.env.example` to `.env`
+2. Update with your configuration
+3. For Tailscale: Set `CORS_ORIGIN=*`
 
 ### For Deployment:
-- Update `.env.local` with your Tailscale IP
-- Update `server/.env` with production settings
+- Update `.env` with production settings
+- Set appropriate `CORS_ORIGIN` for your frontend URL
+- Configure `TORRENT_STORAGE_MODE` (memory for temporary, disk for persistent)
+
+## 📋 Variable Reference
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `PORT` | Server port | 4000 | No |
+| `NODE_ENV` | Environment mode | development | No |
+| `DOWNLOADS_PATH` | Path for disk storage | ./downloads | No |
+| `TORRENT_STORAGE_MODE` | Storage mode: memory or disk | memory | No |
+| `CORS_ORIGIN` | Allowed frontend origin | * | No |
+| `AUTO_DELETE_ON_DISCONNECT` | Auto-delete torrents | true | No |
+| `TORRENT_PAUSE_ON_VIDEO_PAUSE` | Pause on video pause | true | No |
+
 
