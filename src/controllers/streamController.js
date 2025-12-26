@@ -1,5 +1,6 @@
 import torrentManager from '../torrent/TorrentManager.js';
 import { parseRange, getMimeType } from '../utils/rangeParser.js';
+import { spawn } from 'child_process';
 
 /**
  * Stream video file with range request support
@@ -90,6 +91,134 @@ export async function streamVideo(req, res, next) {
         // Cleanup on client disconnect
         req.on('close', () => {
             stream.destroy();
+        });
+
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Stream video with browser-compatible audio by transcoding through ffmpeg.
+ * 
+ * - Audio is transcoded to AAC (browser-compatible)
+ * - Video is copied when possible, transcoded to H.264 for HEVC/MKV
+ * - Does NOT support seeking (streams from start)
+ */
+export async function streamVideoTranscoded(req, res, next) {
+    try {
+        const { infoHash, fileIndex } = req.params;
+
+        const torrent = torrentManager.getTorrentByInfoHash(infoHash);
+        if (!torrent) {
+            return res.status(404).json({ success: false, error: 'Torrent not found' });
+        }
+
+        const fileIdx = parseInt(fileIndex, 10);
+        const file = torrent.files[fileIdx];
+
+        if (!file) {
+            return res.status(404).json({ success: false, error: 'File not found' });
+        }
+
+        // Prioritize this file for streaming
+        torrentManager.prioritizeFileForStreaming(infoHash, fileIdx);
+
+        const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
+
+        // Determine if we need to transcode video (HEVC/MKV needs H.264)
+        const fileName = file.name || '';
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const likelyHevc = /\b(hevc|x265)\b/i.test(fileName);
+        const needsVideoTranscode = ext === 'mkv' || ext === 'avi' || ext === 'ts' || likelyHevc;
+
+        const videoArgs = needsVideoTranscode
+            ? ['-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p']
+            : ['-c:v', 'copy'];
+
+        const args = [
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-i', 'pipe:0',                    // Read from stdin
+            '-map', '0:v:0?',                  // First video stream
+            '-map', '0:a:0?',                  // First audio stream
+            ...videoArgs,
+            '-c:a', 'aac',                     // Transcode audio to AAC
+            '-b:a', '160k',
+            '-ac', '2',                        // Stereo
+            '-movflags', 'frag_keyframe+empty_moov+faststart',
+            '-f', 'mp4',
+            'pipe:1',                          // Output to stdout
+        ];
+
+        const ffmpeg = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        // Handle ffmpeg spawn error
+        ffmpeg.on('error', (err) => {
+            console.error('❌ ffmpeg spawn error:', err.message);
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    error: `ffmpeg not found. Install ffmpeg or set FFMPEG_PATH.`,
+                });
+            }
+        });
+
+        // Log ffmpeg errors (but don't flood console)
+        ffmpeg.stderr.on('data', (chunk) => {
+            if (process.env.NODE_ENV === 'development') {
+                console.warn('ffmpeg:', chunk.toString().trim());
+            }
+        });
+
+        // Set response headers
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Cache-Control', 'no-store');
+
+        // Create read stream from torrent file
+        const input = file.createReadStream();
+
+        input.on('error', (error) => {
+            console.error('❌ Torrent stream error:', error.message);
+            try { ffmpeg.kill('SIGKILL'); } catch { }
+            if (!res.headersSent) {
+                res.status(500).json({ success: false, error: 'Stream error' });
+            }
+        });
+
+        // Pipe torrent -> ffmpeg -> response
+        input.pipe(ffmpeg.stdin);
+
+        let started = false;
+        ffmpeg.stdout.on('data', (chunk) => {
+            if (!started) {
+                started = true;
+                try { res.flushHeaders?.(); } catch { }
+            }
+            res.write(chunk);
+        });
+
+        ffmpeg.stdout.on('end', () => {
+            if (!res.writableEnded) res.end();
+        });
+
+        ffmpeg.stdout.on('error', () => {
+            if (!res.writableEnded) res.end();
+        });
+
+        // Cleanup on disconnect or completion
+        const cleanup = () => {
+            try { input.destroy(); } catch { }
+            try { ffmpeg.stdin.destroy(); } catch { }
+            try { ffmpeg.kill('SIGKILL'); } catch { }
+        };
+
+        req.on('close', cleanup);
+        ffmpeg.on('close', (code) => {
+            if (!started && code && code !== 0) {
+                console.error(`❌ ffmpeg exited with code ${code} before output`);
+            }
+            cleanup();
         });
 
     } catch (error) {
