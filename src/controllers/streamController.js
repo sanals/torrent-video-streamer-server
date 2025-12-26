@@ -1,6 +1,9 @@
 import torrentManager from '../torrent/TorrentManager.js';
 import { parseRange, getMimeType } from '../utils/rangeParser.js';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
+import util from 'util';
+
+const execAsync = util.promisify(exec);
 
 /**
  * Stream video file with range request support
@@ -126,6 +129,9 @@ export async function streamVideoTranscoded(req, res, next) {
 
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
+        // Get audio track index from query param (default to 0)
+        const audioTrackIndex = req.query.audioTrack ? parseInt(req.query.audioTrack, 10) : 0;
+
         // Determine if we need to transcode video (HEVC/MKV needs H.264)
         const fileName = file.name || '';
         const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -141,7 +147,7 @@ export async function streamVideoTranscoded(req, res, next) {
             '-loglevel', 'error',
             '-i', 'pipe:0',                    // Read from stdin
             '-map', '0:v:0?',                  // First video stream
-            '-map', '0:a:0?',                  // First audio stream
+            `-map`, `0:a:${audioTrackIndex}?`, // Selected audio stream (using index)
             ...videoArgs,
             '-c:a', 'aac',                     // Transcode audio to AAC
             '-b:a', '160k',
@@ -220,6 +226,109 @@ export async function streamVideoTranscoded(req, res, next) {
             }
             cleanup();
         });
+
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Get stream info (audio tracks, codecs) using ffprobe
+ */
+export async function getStreamInfo(req, res, next) {
+    try {
+        const { infoHash, fileIndex } = req.params;
+
+        const torrent = torrentManager.getTorrentByInfoHash(infoHash);
+        if (!torrent) {
+            return res.status(404).json({ success: false, error: 'Torrent not found' });
+        }
+
+        const fileIdx = parseInt(fileIndex, 10);
+        const file = torrent.files[fileIdx];
+
+        if (!file) {
+            return res.status(404).json({ success: false, error: 'File not found' });
+        }
+
+        // Prioritize file to ensure we have enough data for probing
+        torrentManager.prioritizeFileForStreaming(infoHash, fileIdx);
+
+        // We need a small chunk of the file to probe it. 
+        // We'll stream the first 10MB to ffprobe via stdin
+        const PROBE_SIZE = 10 * 1024 * 1024;
+        const end = Math.min(file.length - 1, PROBE_SIZE);
+
+        const stream = file.createReadStream({ start: 0, end });
+        const ffprobePath = process.env.FFPROBE_PATH || 'ffprobe';
+
+        // Spawn ffprobe to read from stdin
+        const ffprobe = spawn(ffprobePath, [
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            '-select_streams', 'a', // Only audio streams
+            '-i', 'pipe:0'
+        ]);
+
+        let outputData = '';
+        let errorData = '';
+
+        ffprobe.stdout.on('data', (data) => {
+            outputData += data;
+        });
+
+        ffprobe.stderr.on('data', (data) => {
+            errorData += data;
+        });
+
+        stream.pipe(ffprobe.stdin);
+
+        // Handle stream errors
+        stream.on('error', (err) => {
+            console.error('Stream error during probe:', err);
+            ffprobe.kill();
+        });
+
+        // Handle ffprobe completion
+        ffprobe.on('close', (code) => {
+            // Clean up stream if still open
+            stream.destroy();
+
+            if (code !== 0 && code !== null) {
+                console.error('ffprobe exited with code', code, errorData);
+                return res.status(500).json({ success: false, error: 'Failed to probe file' });
+            }
+
+            try {
+                const data = JSON.parse(outputData);
+                const audioTracks = data.streams.map((stream, index) => ({
+                    index: index, // This is the relative index among audio streams
+                    codec: stream.codec_name,
+                    channels: stream.channels,
+                    language: stream.tags?.language || 'und',
+                    title: stream.tags?.title || stream.tags?.handler_name
+                }));
+
+                res.json({
+                    success: true,
+                    audioTracks
+                });
+            } catch (e) {
+                console.error('Failed to parse ffprobe output:', e);
+                // Fallback if parsing fails (maybe not enough data yet)
+                res.json({ success: true, audioTracks: [] });
+            }
+        });
+
+        // Timeout if probing takes too long (e.g. if download is stuck)
+        setTimeout(() => {
+            if (!res.headersSent) {
+                ffprobe.kill();
+                stream.destroy();
+                res.status(504).json({ success: false, error: 'Probe timeout - file might not be downloaded enough' });
+            }
+        }, 10000);
 
     } catch (error) {
         next(error);
