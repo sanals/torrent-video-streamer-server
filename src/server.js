@@ -14,7 +14,7 @@ const app = express();
 // Middleware
 app.use(cors({
     origin: config.corsOrigin,
-    credentials: true,
+    credentials: config.corsOrigin !== '*',
 }));
 app.use(express.json());
 app.use(morgan('dev'));
