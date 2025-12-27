@@ -1,5 +1,7 @@
 import TorrentSearchApi from 'torrent-search-api';
 import TorrentDownloads from './custom_providers/torrentdownloads.js';
+
+import OtherDirect from './custom_providers/other_direct.js';
 import JackettSearchService from './jackettSearchService.js';
 import config from '../config/index.js';
 
@@ -48,6 +50,7 @@ class AlternativeSearchService {
             'games': 'Games',
             'software': 'Applications',
             'ebook': 'Books',
+            'other': 'Other',
         };
         return categoryMap[category] || 'All';
     }
@@ -188,6 +191,91 @@ class AlternativeSearchService {
 
         // If no results found, return empty array instead of throwing
         return [];
+    }
+
+    /**
+     * Search for other content via Jackett (other category) and OtherDirect
+     * This is the JACKETTX source for the secret other mode
+     */
+    async searchOtherTorrents(query, options = {}) {
+        const limit = Math.min(options.limit || 50, 100);
+        let allResults = [];
+
+        try {
+            await this.waitForRateLimit();
+
+            const promises = [];
+
+            // 1. Jackett Task
+            if (config.jackett.enabled) {
+                promises.push((async () => {
+                    console.log(`🔍 Trying Jackett (Other) for: "${query}"`);
+                    const results = await JackettSearchService.searchTorrents(query, {
+                        ...options,
+                        category: 'other'
+                    });
+                    if (results && results.length > 0) {
+                        console.log(`✅ Found ${results.length} other torrents from Jackett`);
+                        return results;
+                    }
+                    return [];
+                })());
+            }
+
+            // 2. OtherDirect Task
+            promises.push((async () => {
+                console.log(`🔍 Trying OtherDirect for: "${query}"`);
+                const otherResults = await OtherDirect.search(query, null, limit);
+
+                if (otherResults && otherResults.length > 0) {
+                    // Transform OtherDirect results
+                    const transformedOther = await Promise.all(otherResults.map(async torrent => {
+                        let magnetURI = '';
+                        if (torrent.infoHash) {
+                            magnetURI = OtherDirect.buildMagnetLink(torrent.infoHash, torrent.title);
+                        } else {
+                            magnetURI = await OtherDirect.getMagnet(torrent);
+                        }
+                        return {
+                            name: torrent.title || 'Unknown',
+                            magnetURI: magnetURI,
+                            size: OtherDirect.parseSize(torrent.size) || 0,
+                            seeders: torrent.seeds || 0,
+                            leechers: torrent.peers || 0,
+                            category: 'Other',
+                            uploadDate: torrent.time || new Date().toISOString(),
+                            source: 'OtherDirect',
+                            infoPage: torrent.desc || null,
+                        };
+                    }));
+
+                    const validOther = transformedOther.filter(r => r.magnetURI);
+                    console.log(`✅ Found ${validOther.length} torrents from OtherDirect`);
+                    return validOther;
+                }
+                return [];
+            })());
+
+            // Run in parallel and wait for all to settle
+            const results = await Promise.allSettled(promises);
+
+            // Combine results from successful promises
+            results.forEach(result => {
+                if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+                    allResults = allResults.concat(result.value);
+                } else if (result.status === 'rejected') {
+                    console.error('Other search provider failed:', result.reason?.message || result.reason);
+                }
+            });
+
+        } catch (error) {
+            console.error('Other search error:', error.message);
+        }
+
+        // Sort by seeders and return
+        return allResults
+            .sort((a, b) => (b.seeders || 0) - (a.seeders || 0))
+            .slice(0, limit);
     }
 }
 

@@ -73,7 +73,7 @@ const config = {
         url: process.env.JACKETT_URL || 'http://localhost:9117',
         apiKey: process.env.JACKETT_API_KEY || '',
         enabled: !!process.env.JACKETT_API_KEY,
-        timeout: 30000,
+        timeout: 60000,
     }
 };
 

@@ -41,6 +41,9 @@ export async function searchTorrents(req, res, next) {
         } else if (searchSource === 'alternative') {
             // Try multiple providers to avoid Cloudflare
             results = await alternativeSearchService.searchTorrents(q, options);
+        } else if (searchSource === 'jackettx') {
+            // Other content search via Jackett (other category) + OtherDirect
+            results = await alternativeSearchService.searchOtherTorrents(q, options);
         } else {
             // Default to YTS
             results = await torrentSearchService.searchTorrents(q, options);

@@ -367,6 +367,9 @@ export async function getStreamInfo(req, res, next) {
             // Clean up stream if still open
             stream.destroy();
 
+            // Prevent race condition if timeout already sent response
+            if (res.headersSent) return;
+
             if (code !== 0 && code !== null) {
                 console.error('ffprobe exited with code', code, errorData);
                 return res.status(500).json({ success: false, error: 'Failed to probe file' });

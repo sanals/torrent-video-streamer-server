@@ -8,6 +8,23 @@ class JackettSearchService {
     }
 
     /**
+     * Map internal category names to Torznab category IDs
+     * See: https://github.com/Jackett/Jackett/wiki/Jackett-Categories
+     */
+    mapCategory(category) {
+        const categoryMap = {
+            'movies': [2000],
+            'tv': [5000],
+            'music': [3000],
+            'games': [1000],
+            'software': [4000],
+            'ebook': [7000],
+            'other': [6000], // Other category
+        };
+        return categoryMap[category] || null;
+    }
+
+    /**
      * Search torrents via Jackett API
      * @param {string} query Search term
      * @param {Object} options Search options
@@ -20,15 +37,23 @@ class JackettSearchService {
         }
 
         try {
-            // Jackett uses Torznab API. We request JSON format for easier parsing.
-            // t=search is the general search command
-            // q=query is the search term
+            // Build params
+            const params = {
+                apikey: this.apiKey,
+                Query: query,
+                format: 'json'
+            };
+
+            // Add category filter if specified
+            if (options.category) {
+                const cats = this.mapCategory(options.category);
+                if (cats) {
+                    params.Category = cats;
+                }
+            }
+
             const response = await axios.get(`${this.baseUrl}/api/v2.0/indexers/all/results`, {
-                params: {
-                    apikey: this.apiKey,
-                    Query: query,
-                    format: 'json'
-                },
+                params,
                 timeout: config.jackett.timeout
             });
 
