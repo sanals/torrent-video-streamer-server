@@ -33,8 +33,11 @@ export async function searchTorrents(req, res, next) {
         let results = [];
         const searchSource = source || 'yts'; // Default to YTS
 
-        if (searchSource === '1337x') {
-            results = await leetXSearchService.searchTorrents(q, options);
+        if (searchSource === 'tpb') {
+            // Use AlternativeService but force ThePirateBay
+            results = await alternativeSearchService.searchTorrents(q, { ...options, provider: 'ThePirateBay' });
+        } else if (searchSource === 'td') {
+            results = await alternativeSearchService.searchTorrents(q, { ...options, provider: 'TorrentDownloads' });
         } else if (searchSource === 'alternative') {
             // Try multiple providers to avoid Cloudflare
             results = await alternativeSearchService.searchTorrents(q, options);

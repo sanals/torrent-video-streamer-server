@@ -1,4 +1,5 @@
 import TorrentSearchApi from 'torrent-search-api';
+import TorrentDownloads from './custom_providers/torrentdownloads.js';
 
 /**
  * Alternative search service that tries multiple providers
@@ -8,14 +9,22 @@ class AlternativeSearchService {
     constructor() {
         this.lastRequest = 0;
         this.requestDelay = 1000;
-        
+
         // Providers to try in order (ones less likely to have Cloudflare first)
         this.providerPriority = [
-            'RARBG',        // Usually reliable, no Cloudflare
+            'TorrentDownloads', // Custom provider (reliable)
             'ThePirateBay', // May work
+            'RARBG',        // Usually reliable, no Cloudflare
             'Torrent9',     // Alternative
             '1337x',        // Has Cloudflare but try as fallback
         ];
+
+        // Load custom providers
+        try {
+            TorrentSearchApi.loadProvider(TorrentDownloads);
+        } catch (e) {
+            console.error('Failed to load TorrentDownloads provider:', e);
+        }
     }
 
     async waitForRateLimit() {
@@ -64,7 +73,7 @@ class AlternativeSearchService {
     detectCategory(title) {
         if (!title) return 'Other';
         const lower = title.toLowerCase();
-        
+
         if (lower.includes('season') || lower.includes('s0') || lower.includes('episode') || lower.includes('e0')) {
             return 'TV Shows';
         }
@@ -80,7 +89,7 @@ class AlternativeSearchService {
         if (lower.match(/\b(software|app|program)\b/)) {
             return 'Software';
         }
-        
+
         return 'Other';
     }
 
@@ -91,8 +100,13 @@ class AlternativeSearchService {
         const category = options.category ? this.mapCategory(options.category) : 'All';
         const limit = Math.min(options.limit || 50, 100);
 
+        // Use specific provider if requested, otherwise use priority list
+        const providersToTry = options.provider
+            ? [options.provider]
+            : this.providerPriority;
+
         // Try each provider in priority order
-        for (const provider of this.providerPriority) {
+        for (const provider of providersToTry) {
             try {
                 await this.waitForRateLimit();
 
@@ -110,9 +124,20 @@ class AlternativeSearchService {
                 }
 
                 // Transform results
-                const transformedResults = results.map(torrent => {
+                const transformedResults = (await Promise.all(results.map(async torrent => {
                     let magnetURI = torrent.magnet || torrent.magnetLink || '';
-                    
+
+                    // If magnet is missing (e.g. TorrentDownloads), try to fetch it
+                    if (!magnetURI && provider === 'TorrentDownloads' && torrent.desc) {
+                        try {
+                            // Limit magnet fetching to avoid rate limits? 
+                            // For now, try fetching. concurrency might be an issue.
+                            magnetURI = await TorrentSearchApi.getMagnet(torrent);
+                        } catch (e) {
+                            console.warn(`Failed to fetch magnet for ${torrent.title}:`, e.message);
+                        }
+                    }
+
                     return {
                         name: torrent.title || torrent.name || 'Unknown',
                         magnetURI: magnetURI,
@@ -124,14 +149,14 @@ class AlternativeSearchService {
                         source: provider,
                         infoPage: torrent.desc || torrent.url || null,
                     };
-                }).filter(result => result.magnetURI);
+                }))).filter(result => result.magnetURI);
 
                 console.log(`✅ Found ${transformedResults.length} torrents from ${provider}`);
                 return transformedResults;
 
             } catch (error) {
                 const errorStr = JSON.stringify(error).toLowerCase();
-                const isCloudflare = errorStr.includes('cloudflare') || 
+                const isCloudflare = errorStr.includes('cloudflare') ||
                     errorStr.includes('just a moment') ||
                     errorStr.includes('challenge-platform') ||
                     error.status === 403;
@@ -146,10 +171,9 @@ class AlternativeSearchService {
             }
         }
 
-        // If all providers failed
-        throw new Error('All alternative search providers failed. This may be due to Cloudflare protection or network issues.');
+        // If no results found, return empty array instead of throwing
+        return [];
     }
 }
 
 export default new AlternativeSearchService();
-

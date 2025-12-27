@@ -15,11 +15,20 @@ class LeetXSearchService {
         this.providers = ['1337x'];
         this.lastRequest = 0;
         this.requestDelay = 1000;
-        
-        // Try to enable 1337x provider
+
+        // Try to enable 1337x provider and override with working mirror
         try {
+            // Override with working mirror to avoid Cloudflare
+            // .to is often blocked. .so, .ws, .se seem to work better
+            if (TorrentSearchApi.isProvider('1337x')) {
+                const provider = TorrentSearchApi.getProvider('1337x');
+                provider.baseUrl = 'https://1337x.so';
+                // Also update categories that might use absolute URLs? 
+                // The config inspected showed relative URLs /category-search/... so changing baseUrl should be enough.
+            }
+
             TorrentSearchApi.enableProvider('1337x');
-            console.log('✅ 1337x search provider enabled');
+            console.log('✅ 1337x search provider enabled (using mirror: https://1337x.so)');
         } catch (error) {
             console.error('❌ Failed to enable 1337x provider:', error.message);
         }
@@ -84,21 +93,21 @@ class LeetXSearchService {
                     message: searchError.message,
                     status: searchError.status,
                     code: searchError.code,
-                    response: searchError.response?.data ? 
-                        (typeof searchError.response.data === 'string' ? 
-                            searchError.response.data.substring(0, 500) : 
-                            JSON.stringify(searchError.response.data).substring(0, 500)) : 
+                    response: searchError.response?.data ?
+                        (typeof searchError.response.data === 'string' ?
+                            searchError.response.data.substring(0, 500) :
+                            JSON.stringify(searchError.response.data).substring(0, 500)) :
                         'No response data',
                 });
 
                 // Check if it's a Cloudflare block
                 const errorStr = JSON.stringify(searchError).toLowerCase();
-                const responseStr = searchError.response?.data ? 
-                    (typeof searchError.response.data === 'string' ? 
-                        searchError.response.data.toLowerCase() : 
+                const responseStr = searchError.response?.data ?
+                    (typeof searchError.response.data === 'string' ?
+                        searchError.response.data.toLowerCase() :
                         JSON.stringify(searchError.response.data).toLowerCase()) : '';
-                
-                const isCloudflare = errorStr.includes('cloudflare') || 
+
+                const isCloudflare = errorStr.includes('cloudflare') ||
                     errorStr.includes('just a moment') ||
                     errorStr.includes('challenge-platform') ||
                     responseStr.includes('cloudflare') ||
@@ -123,7 +132,7 @@ class LeetXSearchService {
             const transformedResults = results.map(torrent => {
                 // Get magnet link - might need to fetch it separately
                 let magnetURI = torrent.magnet || torrent.magnetLink || '';
-                
+
                 // If no magnet, try to get it from the torrent object
                 if (!magnetURI && torrent.provider === '1337x') {
                     // The API might return it in different formats
@@ -157,9 +166,9 @@ class LeetXSearchService {
             // Check for Cloudflare block
             const errorMessage = error.message || '';
             const errorString = JSON.stringify(error).toLowerCase();
-            
-            if (errorMessage.includes('403') || 
-                errorMessage.includes('cloudflare') || 
+
+            if (errorMessage.includes('403') ||
+                errorMessage.includes('cloudflare') ||
                 errorMessage.includes('Just a moment') ||
                 errorString.includes('cloudflare') ||
                 errorString.includes('challenge-platform')) {
@@ -206,7 +215,7 @@ class LeetXSearchService {
     detectCategory(title) {
         if (!title) return 'Other';
         const lower = title.toLowerCase();
-        
+
         if (lower.includes('season') || lower.includes('s0') || lower.includes('episode') || lower.includes('e0')) {
             return 'TV Shows';
         }
@@ -222,7 +231,7 @@ class LeetXSearchService {
         if (lower.match(/\b(software|app|program)\b/)) {
             return 'Software';
         }
-        
+
         return 'Other';
     }
 }
