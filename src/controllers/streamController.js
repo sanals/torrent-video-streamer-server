@@ -2,6 +2,7 @@ import torrentManager from '../torrent/TorrentManager.js';
 import { parseRange, getMimeType } from '../utils/rangeParser.js';
 import { spawn, exec } from 'child_process';
 import util from 'util';
+import { PassThrough } from 'stream';
 
 const execAsync = util.promisify(exec);
 
@@ -132,9 +133,49 @@ export async function streamVideoTranscoded(req, res, next) {
         // Get audio track index from query param (default to 0)
         const audioTrackIndex = req.query.audioTrack ? parseInt(req.query.audioTrack, 10) : 0;
 
-        // Determine if we need to transcode video (HEVC/MKV needs H.264)
+        // Get start time for seeking (default to 0)
+        const startTime = req.query.startTime ? parseFloat(req.query.startTime) : 0;
+        const duration = req.query.duration ? parseFloat(req.query.duration) : 0;
+
+        let shouldStreamFromOffset = false;
+        let byteOffset = 0;
+        let inputArgs = ['-hide_banner', '-loglevel', 'error'];
+
+        // Determine format FIRST
         const fileName = file.name || '';
         const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+        // SMART SEEKING CONFIGURATION
+        // SMART SEEKING CONFIGURATION
+        if (startTime > 0 && duration > 0) {
+            console.log(`Smart Seeking to ${startTime}s (Duration: ${duration}s, Size: ${file.length})`);
+            const rawOffset = Math.floor((startTime / duration) * file.length);
+
+            // Safety check: specific fixes for bad frontend duration
+            if (rawOffset >= file.length || !isFinite(rawOffset)) {
+                console.warn(`⚠️ Invalid Smart Seek calculation (Offset ${rawOffset} >= File ${file.length}). Fallback to standard seek.`);
+                inputArgs.push('-ss', String(startTime));
+                shouldStreamFromOffset = false;
+            } else {
+                const safetyBuffer = 1024 * 1024 * 5; // 5MB 
+                byteOffset = Math.max(0, rawOffset - safetyBuffer);
+                shouldStreamFromOffset = true;
+                console.log(`Expected byte offset: ${byteOffset}`);
+
+                // Output Seeking Strategy:
+                // We do NOT add -ss to inputArgs here. We act as if we are feeding the whole file.
+                // But we actually feed Header + Offset Body.
+                // FFmpeg will see timestamps jump from 2s -> [OffsetTime].
+                // We will add -ss to OUTPUT args to skip the header frames and reset timestamps.
+            }
+        } else if (startTime > 0) {
+            // Standard seeking (no smart offset calculation), use input seeking
+            inputArgs.push('-ss', String(startTime));
+        }
+
+        // Determine if we need to transcode video (HEVC/MKV needs H.264)
+        // const fileName = file.name || ''; // MOVED UP
+        // const ext = fileName.split('.').pop()?.toLowerCase() || ''; // MOVED UP
         const likelyHevc = /\b(hevc|x265)\b/i.test(fileName);
         const needsVideoTranscode = ext === 'mkv' || ext === 'avi' || ext === 'ts' || likelyHevc;
 
@@ -142,9 +183,10 @@ export async function streamVideoTranscoded(req, res, next) {
             ? ['-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p']
             : ['-c:v', 'copy'];
 
+
+
         const args = [
-            '-hide_banner',
-            '-loglevel', 'error',
+            ...inputArgs,
             '-i', 'pipe:0',                    // Read from stdin
             '-map', '0:v:0?',                  // First video stream
             `-map`, `0:a:${audioTrackIndex}?`, // Selected audio stream (using index)
@@ -153,6 +195,7 @@ export async function streamVideoTranscoded(req, res, next) {
             '-b:a', '160k',
             '-ac', '2',                        // Stereo
             '-movflags', 'frag_keyframe+empty_moov+faststart',
+            ...(shouldStreamFromOffset ? ['-ss', String(startTime)] : []), // OUTPUT SEEKING (only for smart seek)
             '-f', 'mp4',
             'pipe:1',                          // Output to stdout
         ];
@@ -181,8 +224,37 @@ export async function streamVideoTranscoded(req, res, next) {
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Cache-Control', 'no-store');
 
-        // Create read stream from torrent file
-        const input = file.createReadStream();
+        // Create read stream from torrent file (with seeking if needed)
+        let input;
+
+        if (shouldStreamFromOffset) {
+            // HEADER STITCHING (Generic for all formats)
+            // Feed the first 2MB (Header) + Offset Stream (Body)
+            const combined = new PassThrough();
+            const headerEnd = 2 * 1024 * 1024; // 2MB
+
+            console.log(`Stitching header (0-${headerEnd}) + body (${byteOffset}-end)`);
+
+            const headerStream = file.createReadStream({ start: 0, end: headerEnd });
+            const bodyStream = file.createReadStream({ start: byteOffset });
+
+            // Error handling forward
+            headerStream.on('error', err => combined.emit('error', err));
+            bodyStream.on('error', err => combined.emit('error', err));
+
+            // Read header first
+            headerStream.pipe(combined, { end: false });
+
+            headerStream.on('end', () => {
+                console.log('Header sent, switching to body stream...');
+                bodyStream.pipe(combined);
+            });
+
+            input = combined;
+
+        } else {
+            input = file.createReadStream();
+        }
 
         input.on('error', (error) => {
             console.error('❌ Torrent stream error:', error.message);
@@ -310,14 +382,18 @@ export async function getStreamInfo(req, res, next) {
                     title: stream.tags?.title || stream.tags?.handler_name
                 }));
 
+                // Get duration from format or first video stream
+                const duration = parseFloat(data.format?.duration || data.streams[0]?.duration || 0);
+
                 res.json({
                     success: true,
-                    audioTracks
+                    audioTracks,
+                    duration
                 });
             } catch (e) {
                 console.error('Failed to parse ffprobe output:', e);
-                // Fallback if parsing fails (maybe not enough data yet)
-                res.json({ success: true, audioTracks: [] });
+                // Fallback if parsing fails
+                res.json({ success: true, audioTracks: [], duration: 0 });
             }
         });
 
@@ -329,6 +405,114 @@ export async function getStreamInfo(req, res, next) {
                 res.status(504).json({ success: false, error: 'Probe timeout - file might not be downloaded enough' });
             }
         }, 10000);
+
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Serve raw file data with HTTP Range support.
+ * This endpoint is used by FFmpeg via HTTP loopback for efficient seeking.
+ * 
+ * When FFmpeg uses -ss with an HTTP input, it automatically sends Range requests
+ * to skip to the correct position, avoiding the need to read from byte 0.
+ * 
+ * Supports byteOffset query param for direct byte-offset seeking (for MKV files).
+ * 
+ * GET /api/raw/:infoHash/:fileIndex
+ * GET /api/raw/:infoHash/:fileIndex?byteOffset=123456
+ */
+export async function getRawFile(req, res, next) {
+    try {
+        const { infoHash, fileIndex } = req.params;
+        const range = req.headers.range;
+        const queryByteOffset = req.query.byteOffset ? parseInt(req.query.byteOffset, 10) : 0;
+
+        // Get torrent
+        const torrent = torrentManager.getTorrentByInfoHash(infoHash);
+        if (!torrent) {
+            return res.status(404).json({
+                success: false,
+                error: 'Torrent not found',
+            });
+        }
+
+        // Get file
+        const fileIdx = parseInt(fileIndex, 10);
+        const file = torrent.files[fileIdx];
+
+        if (!file) {
+            return res.status(404).json({
+                success: false,
+                error: 'File not found',
+            });
+        }
+
+        // Prioritize this file for streaming
+        torrentManager.prioritizeFileForStreaming(infoHash, fileIdx);
+
+        const fileSize = file.length;
+        const fileName = file.name || 'video.mkv';
+
+        // Parse range header OR use byteOffset query param
+        let start = queryByteOffset; // Start from byteOffset if provided
+        let end = fileSize - 1;
+        let statusCode = queryByteOffset > 0 ? 206 : 200;
+        let contentLength = fileSize - start;
+
+        if (range) {
+            const parsedRange = parseRange(range, fileSize);
+
+            if (!parsedRange) {
+                return res.status(416).json({
+                    success: false,
+                    error: 'Range not satisfiable',
+                });
+            }
+
+            start = parsedRange.start;
+            end = parsedRange.end;
+            contentLength = end - start + 1;
+            statusCode = 206; // Partial Content
+        }
+
+        // Set response headers
+        const headers = {
+            'Content-Type': 'application/octet-stream',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': contentLength,
+        };
+
+        if (statusCode === 206) {
+            headers['Content-Range'] = `bytes ${start}-${end}/${fileSize}`;
+        }
+
+        res.writeHead(statusCode, headers);
+
+        // Create read stream with range
+        const stream = file.createReadStream({ start, end });
+
+        // Handle stream errors
+        stream.on('error', (error) => {
+            console.error('❌ Raw stream error:', error.message);
+            if (!res.headersSent) {
+                res.status(503).json({
+                    success: false,
+                    error: 'File data not available yet',
+                });
+            } else if (!res.writableEnded) {
+                res.end();
+            }
+        });
+
+        // Pipe stream to response
+        stream.pipe(res);
+
+        // Cleanup on client disconnect
+        req.on('close', () => {
+            stream.destroy();
+        });
 
     } catch (error) {
         next(error);
