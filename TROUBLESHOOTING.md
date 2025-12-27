@@ -34,17 +34,22 @@ taskkill /PID <PID> /F
 3. Firewall allows port 4000
 4. Frontend `.env.local` has correct `VITE_API_URL`
 
-### Torrent Search API Issues
+### Jackett Issues
 
-**Problem**: Search API returns errors or timeouts
+**Problem**: "No results found" or connection errors
+**Check**:
+1. Jackett is running: Access `http://localhost:9117` in your browser.
+2. API Key is correct: Check `JACKETT_API_KEY` in your `.env` file matches the dashboard.
+3. Indexers are added: You must add indexers (TPB, 1337x, etc.) inside the Jackett dashboard.
+4. Firewall: Ensure Jackett's port (9117) isn't blocked.
 
-**Solutions**:
-1. Check Windows Firewall allows Node.js
-2. Temporarily disable antivirus HTTPS scanning
-3. Check network connectivity
-4. Try alternative search sources
+### FFmpeg Issues
 
-See `TROUBLESHOOTING.md` in the main repository for detailed search API troubleshooting.
+**Problem**: Video stalls on seek or fails to play
+**Solution**:
+1. Verify installation: Run `ffmpeg -version` in terminal.
+2. PATH configuration: Ensure the FFmpeg `bin` folder is in your System PATH.
+3. Transcoding: Some advanced formats require FFmpeg for real-time transcoding.
 
 ### Memory Issues
 

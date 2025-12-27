@@ -4,6 +4,8 @@
 
 ### 1. Install Prerequisites
 - **Node.js**: Download from [nodejs.org](https://nodejs.org/) (v18+)
+- **FFmpeg**: Required for video transcoding/seeking. Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (Windows).
+- **Jackett**: Recommended for search. [Download here](https://github.com/Jackett/Jackett/releases).
 
 ### 2. Install Dependencies
 ```powershell
@@ -20,6 +22,10 @@ CORS_ORIGIN=*
 TORRENT_STORAGE_MODE=memory
 AUTO_DELETE_ON_DISCONNECT=true
 TORRENT_PAUSE_ON_VIDEO_PAUSE=true
+
+# Jackett Search
+JACKETT_URL=http://localhost:9117
+JACKETT_API_KEY=your_api_key_here
 ```
 
 ### 4. Start the Server

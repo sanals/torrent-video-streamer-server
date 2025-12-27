@@ -1,10 +1,11 @@
-
 import TorrentSearchApi from 'torrent-search-api';
 // Import custom providers
 import TorrentDownloads from './src/services/custom_providers/torrentdownloads.js';
+import JackettSearchService from './src/services/jackettSearchService.js';
+import config from './src/config/index.js';
 
 // Configuration
-const PROVIDERS = ['ThePirateBay', 'YTS', 'TorrentDownloads'];
+const PROVIDERS = ['Jackett', 'ThePirateBay', 'YTS', 'TorrentDownloads'];
 const QUERY = 'Stranger Things';
 
 async function verifyProviders() {
@@ -22,6 +23,22 @@ async function verifyProviders() {
         console.log(`\nTesting ${provider}...`);
 
         try {
+            if (provider === 'Jackett') {
+                if (!config.jackett.enabled) {
+                    console.log('⚠️ Jackett is not enabled (missing API key in .env)');
+                    continue;
+                }
+                const results = await JackettSearchService.searchTorrents(QUERY);
+                if (results && results.length > 0) {
+                    console.log(`✅ ${provider}: Found ${results.length} results.`);
+                    console.log(`   Sample: ${results[0].name}`);
+                    console.log(`   Source: ${results[0].source}`);
+                } else {
+                    console.log(`⚠️  ${provider}: No results found. (Make sure you have added indexers in Jackett UI)`);
+                }
+                continue;
+            }
+
             // Disable all others to isolate test
             TorrentSearchApi.disableAllProviders();
             TorrentSearchApi.enableProvider(provider);

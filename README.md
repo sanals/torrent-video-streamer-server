@@ -21,16 +21,28 @@ A **Node.js backend server** for torrent video streaming that handles WebTorrent
 
 ## 📋 Prerequisites
 
-- Node.js (v18 or higher)
-- npm or yarn
+- **Node.js**: v18 or higher
+- **npm**: package manager
+- **FFmpeg**: Required for video transcoding and smooth seeking
+- **Jackett**: (Optional but Recommended) For expanded torrent search capabilities
 
 ## 🚀 Installation
 
-```bash
-npm install
-```
+1. **Install Node dependencies**:
+   ```bash
+   npm install
+   ```
 
-## 🔧 Configuration
+2. **Install FFmpeg**:
+   - **Windows**: Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), extract, and add the `bin` folder to your System PATH.
+   - **macOS**: `brew install ffmpeg`
+   - **Linux**: `sudo apt install ffmpeg`
+
+3. **Install & Setup Jackett**:
+   - Download indexer from [Jackett GitHub](https://github.com/Jackett/Jackett/releases).
+   - Install and run the Jackett service.
+   - Access the dashboard at `http://localhost:9117`.
+   - Copy your **API Key** from the top right of the Jackett dashboard.
 
 Create `.env` file (or copy from `.env.example`):
 
@@ -42,6 +54,10 @@ CORS_ORIGIN=*
 TORRENT_STORAGE_MODE=memory
 AUTO_DELETE_ON_DISCONNECT=true
 TORRENT_PAUSE_ON_VIDEO_PAUSE=true
+
+# Jackett Configuration
+JACKETT_URL=http://localhost:9117
+JACKETT_API_KEY=your_api_key_here
 ```
 
 ## 🎬 Running the Server
@@ -140,6 +156,8 @@ server/
 - `TORRENT_STORAGE_MODE` - `memory` or `disk` (default: memory)
 - `AUTO_DELETE_ON_DISCONNECT` - Delete torrents when last client disconnects (default: true)
 - `TORRENT_PAUSE_ON_VIDEO_PAUSE` - Pause download when video pauses (default: true)
+- `JACKETT_URL` - URL of your Jackett instance (default: http://localhost:9117)
+- `JACKETT_API_KEY` - Your Jackett API Key (required for Jackett search)
 
 ## 🚧 Development
 

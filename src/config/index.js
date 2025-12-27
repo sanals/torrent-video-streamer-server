@@ -21,7 +21,7 @@ const parseCorsOrigin = (origin) => {
 const getCorsOrigin = () => {
     const envOrigin = process.env.CORS_ORIGIN;
     const nodeEnv = process.env.NODE_ENV || 'development';
-    
+
     // In development, use a function to dynamically allow origins
     if (nodeEnv === 'development') {
         return (origin, callback) => {
@@ -30,19 +30,19 @@ const getCorsOrigin = () => {
                 callback(null, true);
                 return;
             }
-            
+
             // Allow localhost
             if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
                 callback(null, true);
                 return;
             }
-            
+
             // Allow Tailscale IPs (100.x.x.x range)
             if (origin.match(/^https?:\/\/100\.\d+\.\d+\.\d+:\d+$/)) {
                 callback(null, true);
                 return;
             }
-            
+
             // Allow configured origins
             const allowedOrigins = parseCorsOrigin(envOrigin);
             if (Array.isArray(allowedOrigins)) {
@@ -54,12 +54,12 @@ const getCorsOrigin = () => {
                 callback(null, true);
                 return;
             }
-            
+
             // In development, be permissive - allow all
             callback(null, true);
         };
     }
-    
+
     // Production: use strict CORS from environment
     return parseCorsOrigin(envOrigin) || 'http://localhost:3000';
 };
@@ -69,6 +69,12 @@ const config = {
     nodeEnv: process.env.NODE_ENV || 'development',
     downloadsPath: process.env.DOWNLOADS_PATH || './downloads',
     corsOrigin: getCorsOrigin(),
+    jackett: {
+        url: process.env.JACKETT_URL || 'http://localhost:9117',
+        apiKey: process.env.JACKETT_API_KEY || '',
+        enabled: !!process.env.JACKETT_API_KEY,
+        timeout: 30000,
+    }
 };
 
 // Validate required config

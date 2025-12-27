@@ -1,5 +1,7 @@
 import TorrentSearchApi from 'torrent-search-api';
 import TorrentDownloads from './custom_providers/torrentdownloads.js';
+import JackettSearchService from './jackettSearchService.js';
+import config from '../config/index.js';
 
 /**
  * Alternative search service that tries multiple providers
@@ -12,11 +14,10 @@ class AlternativeSearchService {
 
         // Providers to try in order (ones less likely to have Cloudflare first)
         this.providerPriority = [
+            'Jackett',          // Jackett (handles 500+ providers)
             'TorrentDownloads', // Custom provider (reliable)
-            'ThePirateBay', // May work
-            'RARBG',        // Usually reliable, no Cloudflare
-            'Torrent9',     // Alternative
-            '1337x',        // Has Cloudflare but try as fallback
+            'ThePirateBay',    // May work
+            'YTS',             // High reliability for movies
         ];
 
         // Load custom providers
@@ -111,6 +112,20 @@ class AlternativeSearchService {
                 await this.waitForRateLimit();
 
                 console.log(`🔍 Trying ${provider} for: "${query}"`);
+
+                if (provider === 'Jackett') {
+                    if (!config.jackett.enabled) {
+                        console.log('ℹ️  Jackett not enabled, skipping...');
+                        continue;
+                    }
+                    const results = await JackettSearchService.searchTorrents(query, options);
+                    if (results && results.length > 0) {
+                        console.log(`✅ Found ${results.length} torrents from ${provider}`);
+                        return results;
+                    }
+                    console.log(`ℹ️  No results from ${provider}, trying next...`);
+                    continue;
+                }
 
                 // Disable all, enable only this provider
                 TorrentSearchApi.disableAllProviders();
