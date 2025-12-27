@@ -26,8 +26,7 @@ class JackettSearchService {
             const response = await axios.get(`${this.baseUrl}/api/v2.0/indexers/all/results`, {
                 params: {
                     apikey: this.apiKey,
-                    t: 'search',
-                    q: query,
+                    Query: query,
                     format: 'json'
                 },
                 timeout: config.jackett.timeout
@@ -76,8 +75,7 @@ class JackettSearchService {
             const response = await axios.get(`${this.baseUrl}/api/v2.0/indexers/all/results`, {
                 params: {
                     apikey: this.apiKey,
-                    t: 'search',
-                    q: 'test',
+                    Query: 'test',
                     format: 'json'
                 },
                 timeout: 5000
