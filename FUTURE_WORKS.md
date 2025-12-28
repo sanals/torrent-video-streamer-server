@@ -1,6 +1,24 @@
 # Planned Improvements - TV Streamer
 
 This document outlines the next set of prioritized tasks for the TV Streamer project.
+Items are ordered by urgency.
+
+## 0. Optimize Torrent Addition Responsiveness (PRIORITY)
+**Goal**: Make the torrent addition process non-blocking and highly responsive without losing metadata visibility.
+
+### ⚠️ Issues Faced During Attempted Fix:
+- **API Hanging**: The `POST /api/torrents` endpoint currenty waits for WebTorrent to finish gathering metadata (file list, name, total size) before responding. This can take several minutes if peers are scarce, causing browser timeouts.
+- **UI State Disconnect**: The "Add" button in search results resets its state before the torrent actually appears in the global `TorrentList`, leading to user confusion and duplicate addition attempts.
+- **Duplicate Key Warnings**: Using `magnetURI` as the primary key in the backend `torrents` Map is problematic because multiple magnet links can point to the same `infoHash`. This causes React duplicate key warnings in the frontend list.
+- **"NaN undefined" UI**: If a torrent is added non-blocking, fields like `length` and `downloadSpeed` are initially `undefined`, causing the `formatBytes` utility to output "NaN undefined" in the UI.
+- **Metadata Sync**: There is currently no robust event-driven mechanism to notify the frontend (via WebSocket) the exact moment background metadata loading finishes. The UI needs an immediate "torrent:update" broadcast when the `client.add` callback fires.
+
+### 💡 Recommendation for Future Fix:
+1. Refactor `TorrentManager.js` to inherit from `EventEmitter`.
+2. Consistently use `infoHash` as the map key in the backend.
+3. Resolve the API call immediately with a serialized torrent object containing "Loading..." placeholders.
+4. Emit a `metadata` event in the backend and broadcast it via WebSocket to force a frontend refresh once files are found.
+5. Update `formatUtils.ts` to handle `undefined` or `NaN` gracefully.
 
 ## 1. Clear All Torrents
 **Goal**: Allow users to clear all loaded torrents at once when multiple torrents are active.
