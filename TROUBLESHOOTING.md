@@ -43,13 +43,20 @@ taskkill /PID <PID> /F
 3. Indexers are added: You must add indexers (TPB, 1337x, etc.) inside the Jackett dashboard.
 4. Firewall: Ensure Jackett's port (9117) isn't blocked.
 
-### FFmpeg Issues
+### FFmpeg / FFprobe Issues
+**Problem**: Server crashes with `ERR_HTTP_HEADERS_SENT` or "Stream info failed"
+
+**Solution**:
+1.  **FFprobe Timeout**: Large files on slow networks might time out during probing. This is usually handled gracefully now, but checks your network.
+2.  **Missing FFprobe**: Ensure `ffprobe` is installed and in your PATH alongside `ffmpeg`.
+3.  **Corrupt File**: The torrent file header might be partial. Wait for more download progress.
 
 **Problem**: Video stalls on seek or fails to play
 **Solution**:
 1. Verify installation: Run `ffmpeg -version` in terminal.
 2. PATH configuration: Ensure the FFmpeg `bin` folder is in your System PATH.
 3. Transcoding: Some advanced formats require FFmpeg for real-time transcoding.
+
 
 ### Memory Issues
 

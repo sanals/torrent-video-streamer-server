@@ -13,17 +13,17 @@ A **Node.js backend server** for torrent video streaming that handles WebTorrent
 
 - ✅ Stream any torrent (not limited to WebRTC-only torrents)
 - ✅ Real-time download progress with peers/speed info
-- ✅ Video seeking support via HTTP range requests
+- ✅ Video seeking support via **MSE / Transcoding** (Corrected from just HTTP range)
 - ✅ Multiple concurrent torrents
 - ✅ WebSocket live updates
-- ✅ Torrent search API integration
+- ✅ Torrent search API integration (Jackett + Custom)
 - ✅ Configurable storage (memory or disk)
 
 ## 📋 Prerequisites
 
 - **Node.js**: v18 or higher
 - **npm**: package manager
-- **FFmpeg**: Required for video transcoding and smooth seeking
+- **FFmpeg & FFprobe**: Required for video transcoding, probing, and smooth seeking
 - **Jackett**: (Optional but Recommended) For expanded torrent search capabilities
 
 ## 🚀 Installation
@@ -80,6 +80,7 @@ NODE_ENV=production npm start
 - `POST /api/torrents` - Add a torrent (magnet link or file)
 - `GET /api/torrents` - Get all torrents
 - `GET /api/torrents/:infoHash` - Get specific torrent
+- `DELETE /api/torrents` - **[NEW]** Clear all torrents
 - `DELETE /api/torrents/:infoHash` - Remove a torrent
 - `POST /api/torrents/:infoHash/pause` - Pause torrent download
 - `POST /api/torrents/:infoHash/resume` - Resume torrent download
@@ -87,9 +88,11 @@ NODE_ENV=production npm start
 
 ### Video Streaming
 - `GET /api/stream/:infoHash/:fileIndex` - Stream video with range support
+- `GET /api/stream/:infoHash/:fileIndex` - Stream video with range support
 
 ### Search
 - `GET /api/search?q=query&source=yts` - Search for torrents
+- `GET /api/search?q=query&source=jackettx` - Hybrid search (Jackett + Direct)
 
 ### Utility
 - `GET /api/health` - Health check
@@ -169,7 +172,9 @@ npm run lint
 ## ⚠️ Known Limitations
 
 - **Some torrents may be slow** - Depends on seeders/peers availability
-- **Large files take time** - Full download needed before seeking works smoothly
+- **Seeking behavior**:
+    - **Native Mode**: Requires full download of the segment typically.
+    - **MSE Mode**: Allows immediate seeking via transcoding (Use "Fix Audio" button if seeking issues occur).
 - **Memory usage** - Using memory storage loads entire torrents into RAM
 
 ## 🐛 Troubleshooting
